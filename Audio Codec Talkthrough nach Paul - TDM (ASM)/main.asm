@@ -42,6 +42,14 @@ Purpose:	THIS program sets up the SPI port on the ADSP-BF533 to
 		the AD1885 data sheet.		
 												
 ******************************************************************************/
+
+/****************************************************************************
+Hacked by Paul to embed wavelet filter bank (_wfb).
+The filter bank is always running, in main, but spins until the rx ISR flags data available.
+It disables interrupts, clears that flag, renables interrupts, does the FIR cascade, writes/outputs
+new samples (presently 2 at a time).
+
+***************************************************************************/
 .section L1_data_a;
 
 // left input data from ad1836
