@@ -304,6 +304,12 @@ Init_DMA.END:
 .section L1_code;
 Init_Interrupts:
 
+	[--SP] = R7; //apparently Push Multiple (q.v.) doesn't work with P regs on the BF533
+	[--SP] = R1;
+	[--SP] = R0;
+	[--SP] = P1;
+	[--SP] = P0;
+
 	// Set Sport0 RX (DMA1) interrupt priority to 2 = IVG9 
 	P0.L = LO(SIC_IAR1);
 	P0.H = HI(SIC_IAR1);	
@@ -335,6 +341,13 @@ Init_Interrupts:
 	R7 = R7 | R1;
 	[ P0 ] = R7;
 	
+	P0 = [SP++];
+	P1 = [SP++];
+	R0 = [SP++];
+	R1 = [SP++];
+	R7 = [SP++];
+	
+	
 Init_Interrupts.END:
 	RTS;
 	
@@ -345,6 +358,9 @@ Init_Interrupts.END:
 ******************************************************************************/
 .section L1_code;
 Enable_DMA_Sport0:
+
+	[--SP] = P1; 
+	[--SP] = R1;
 
 	// Enable DMA2
 	P1.L = LO(DMA2_CONFIG);
@@ -370,6 +386,9 @@ Enable_DMA_Sport0:
 	R1.L = W[ P1 ];
 	BITSET(R1,0);
 	W[ P1 ] = R1; 
+	
+	R1 = [SP++];
+	P1 = [SP++];
 	
 Enable_DMA_Sport0.END:
 	RTS;
