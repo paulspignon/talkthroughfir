@@ -87,7 +87,33 @@ new samples (presently 2 at a time).
 .align 4;
 .byte4	rx_buf[8];
 
-.VAR hh[TAPLENGTH] = "filt_coeff.dat"; //file of the form 
+/************
+
+H0 a, b, c, d		F0 d, c, b, a 
+H1 d, -c, b, -a     F1 -a, b, -c, d
+
+Generally, to get IDWT filters from DWT
+
+H0 a, b, c
+H1 p, q, r, s, t 
+F0 p, -q, r, -s
+p, -q, r, -s, t F0
+
+***********/
+
+//The high-pass filter. Following Bömer's notation for consistency, regardless of logicality, h/H stands for forward transform, f/F for inverse (reconstruction) transform filters
+
+.VAR hh[TAPLENGTH] = { 0.4r, 0.4r, 0.4r, 0.4r}; //{0.70710678118655r, 0.70710678118655r, 0.70710678118655r, 0.70710678118655r}; 
+/*
+
+{	0.070710678118655r, 0.070710678118655r, 0.070710678118655r,0.070710678118655r, 0.070710678118655r, 0.070710678118655r, 0.070710678118655r, 0.070710678118655r,
+	0.070710678118655r, 0.070710678118655r, 0.070710678118655r, 0.070710678118655r,0.070710678118655r, 0.070710678118655r, 0.070710678118655r, 0.070710678118655r,
+	0.070710678118655r, 0.070710678118655r, 0.070710678118655r, 0.070710678118655r,0.070710678118655r, 0.070710678118655r, 0.070710678118655r, 0.070710678118655r,
+	0.070710678118655r, 0.070710678118655r, 0.070710678118655r, 0.070710678118655r,0.070710678118655r, 0.070710678118655r, 0.070710678118655r, 0.070710678118655r,
+	0.070710678118655r, 0.070710678118655r, 0.070710678118655r, 0.070710678118655r,0.070710678118655r, 0.070710678118655r, 0.070710678118655r, 0.070710678118655r,
+	0.070710678118655r, 0.070710678118655r, 0.070710678118655r, 0.070710678118655r,0.070710678118655r, 0.070710678118655r, 0.070710678118655r, 0.070710678118655r,
+	0.070710678118655r, 0.070710678118655r, 0.070710678118655r, 0.070710678118655r,0.070710678118655r, 0.070710678118655r, 0.070710678118655r, 0.070710678118655r,
+	0.070710678118655r, 0.070710678118655r, 0.070710678118655r, 0.070710678118655r,0.070710678118655r, 0.070710678118655r, 0.070710678118655r, 0.070710678118655r};*/ // "filt_coeff.dat"; //file of the form 
 											/*	0xff14,
 												000000,
 												0x114a,
@@ -96,6 +122,9 @@ new samples (presently 2 at a time).
 												0x114a,
 												000000,
 												0xff14 */
+												
+.VAR hl[TAPLENGTH]; //
+
 .align 2												
 .BYTE2 d[DELAY_SIZE];
 //.BYTE2 in[INBUF_SIZE]; No use for inbuff, each sample pair
@@ -105,10 +134,14 @@ new samples (presently 2 at a time).
 
 .GLOBAL flags, d, out;
 /*****************************************************************************
- Function:	_main														
+ Function:	_main	
+ 
+ May change this so it's a function called from a C shell (hehe). The function call will be something like
+ _wisewave(unsigned int flags, int filtlen, int n_levels)
+ How to initialize different hh, hl, or even change on the fly? One option, the C shell writes 										
  
  Description: After initialization as per the Talkthrough example, my code disables interrupts, initializes the FIR
- 	setup, reenables interrupts, and spins unitl 					
+ 	setup, reenables interrupts, and spins until there's something to filter					
 ******************************************************************************/
 .global _main;
 
@@ -123,25 +156,18 @@ _main:
 	call Init_DMA;
 	call Init_Interrupts;
 	call Enable_DMA_Sport0;
-	
-	
+		
 	
 //Here do all the setup for the filter bank
 	
-//WAIT_FOREVER:
-//	JUMP WAIT_FOREVER;
-	
 	CLI R5; //Disable interrupts while we set up the processing framework
 
-//	P0=[SP+12];		    // Address of the filter structure s, pop address of the struct off the stack
-//	nop;nop;nop;		// idle 3 cycles, don't know why this should be necessary
 	P1.L = hh;			// Address of the filter coefficient array, size M	
 	P1.H = hh;			
-//	P2=[P0++];   		// Address of the delay line, built to contain K samples, K=M for now
-	P2.L = d;
+	P2.L = d;			//Address of the delay line
 	P2.H = d;
 //	R3=[P0++];			// Number of filter coefficients, M	
-	R3 = DELAY_SIZE;
+//	R3 = DELAY_SIZE;
 	I2=P1;				// Initialize I2 to the start of the filter coeff. array h[]
 	B2=P1;				// Filter coeff. array initialized as a circular buffer 
 	I0=P2;     			// start of the delay line write pointer
@@ -158,23 +184,8 @@ _main:
 
 	R2=R2+R2;			//only needed if making the output buff circular
 	
-/*** never mind about checking, we'll always make M even
-			CC=BITTST(R3,0);	//Check if the number of filter taps is odd &-- is LSB 1? --&
-			R3=R3+R3;			//As the filter coeff. are of fract16 (2 bytes) N.B., if we are feeding in different coeffs
-			L2=R3;				//Initialize the filter coeff. length register
-			P0=R0; 			    // Address of the input array   
- 
-			R3+=2;				//Make the filter taps even	&-- make the circular buffer		
-			L2=R3;				//2 bytes longer --&
-			NOP;NOP;NOP;NOP;	//&-- don't know why this is needed --&
-			I2-=2;              // Location where zero  has to be padded to coeffs.  
-			R0=0;
-			W[I2++]=R0.L;		 //Set the last filter coeff. as zero to 
-							     //force the number of filter taps even
-
-FIR_CONTINUE:
-**************/
-
+/*** never mind about checking for even tap count, we'll always make M even ***/
+			
 	R3 = DELAY_SIZE<<1;	//Tried making bigger, but then I1-- does not automatically reposition 1 sample behind I0++ on next outer loop
 	L0 = R3;      		// Set the length of the delay line buffer &-- size of filter coeff array in bytes, I0 will wrap automagically at this point --&
 	L1 = R3;      		// Set the length of the delay line buffer &-- size of "delay line", that is sample segment, I1 will wrap at this point --&
@@ -198,27 +209,24 @@ FIR_CONTINUE:
 
 //	LSETUP(OUTLOOP,END_OUTLOOP)LC0=P1>>1; //Outer Loop N/2 times, in example P1=260, LC0 = 130, bite off 2 samples each loop
 	
-//	STI R5;//Renable interrupts now we are ready to spin/process
-
-//	call Init_Interrupts;
-//	call Enable_DMA_Sport0;
 
 //******************************************************************************************
 	
 OUTLOOP:
-	STI R5;NOP; NOP; NOP; NOP;  //Enable interrupts and spin a while before checking flag again
+	STI R5;
+	NOP; NOP; NOP; NOP;  //Enable interrupts and spin a while before checking flag again
 	P0.L = flags;
 	P0.H = flags;		//P0 now contains address of flags
 	CLI R5; 			//Disable interrupts while we test flags
-	R4.L = W [P0];
+	R4.L = W [P0];		//Copy flag word to R4.L
 	CC = BITTST(R4, IN_READY); //Is the flag bit set?
 	IF !CC JUMP OUTLOOP (BP); //If not, go spin some more,
 	BITCLR(R4, IN_READY); //else clear the flag at once, while interrupts are still disabled
 	W [P0] = R4.L;			//write the flags back in the flag variable
 	
 	//N.B. Interrupts are still disabled as yet			
-	R0 = R7;			// next two samples delivered by DMA in the ISR are in R7, get them into R0,  	
-	[I3++] = R6;		//cache the 2 output samples in the output buffer. The ISR will get them from out one by one
+	R0 = R7;			// next two samples delivered by DMA in the ISR are in R7, get them into R0 for first convolution MAC  	
+	[I3--] = R6;		//cache the 2 output samples in the output buffer. The ISR will get them from out one by one
 						//on the next two interrupts, incrementing I3, i.e. at present no actual buffering of the output. TODO, maybe,
 						//but as we have no more circular index registers have to cache I3 somewhere		
 	STI R5;				//reenable interrupts
@@ -240,15 +248,73 @@ INLOOP:
 END_INLOOP:
 	A0 += R2.L*R0.L,	//add h[2].x[n-2] to A0
 	A1 += R2.L*R0.H ||	//add h[2].x[n-1] to A1
-	R0.H = W[I1--];		//R0.L= x[n-2], R0.H=x[n-3], have to use R3 here because we still need x[n-2], in R1.L
+	R0.H = W[I1--];		//R0.L= x[n-2], R0.H=x[n-3]
 
 //END_OUTLOOP:	
 	R6.L = (A0 += R2.H*R0.H),	//add h[7].x[n-7] to A0, assuming all done copy low word to R6.L 
 	R6.H = (A1 += R2.H*R0.L) ||	//add h[7].x[n-6] to A1,      "     "   "  copy low word to R6.H
 	R2 = [I2++] ||				//R2.L = h[0], R2.H = h[1], for next outer loop
-	I1+=2; 				//In one outer loop I1 steps backwards by M-1 samples, ending up one sample further forward in the M-sample 
+//	I1+=2; 				//In one outer loop I1 steps backwards by M-1 samples, ending up one sample further forward in the M-sample 
 						// circular buffer d[], whilst I0 advances two samples in each outer loop.Hence need to bump up I1 by one more sample
+/************
+Now using delay line of M+2 samples, so I1 ends up where I0 is, before next 2 samples are written to [I0++]. Need to back I1 by 1 sample.
+Here's and illustration for the case of M=4, at the transition between getting out samples y[4], y[5] and initiating convolutions to get y[6], y[7]
+
+Before convoluting to get y[4], y[5]
+
+                                                           ---- put in from R0 ----- 
+ |    x[0]     |     x[1]     |     x[2]     |     x[3]     | x[4]     |     x[5]     |
+    
+  ^                                                          ^
+  I0                                                         I1
+  
+  After (the last operation using I1 was R0.H = W[I1--], getting x[1] (i.e. x[n-M+1], n=4, M=4) into R0.H 
+  
+                                ------------------used to get y[5] --------------------
+                 ---------------------- used to get y[4] ---------------     
+  |    x[0]     |     x[1]     |     x[2]     |     x[3]     | x[4]     |     x[5]     |
+   ^
+   I1
+   I0
+   
+  On loading x[6], x[7] instead of the two oldest samples,  using I0++:
+  
+   ----- put in from R0 -------
+  |    x[6]     |     x[7]     |     x[2]     |     x[3]     | x[4]     |     x[5]     |
+  ^                             ^
+  I1                            I0
+  
+  We need I1 to be pointing at x[5] (x[n-1] now n = 6), so it needs to be move back by one sample before initializing the loop again. 
+  Then we'll have
+   
+      ----- put in from R0 -------
+  |    x[6]     |     x[7]     |     x[2]     |     x[3]     | x[4]     |     x[5]     |
+                                ^                                        ^
+                               I0                                        I1
+
+*****************/
 	
+	A0 += A1;		//Average of pair
+	A0 = A0 >>> 1;  //Divide sum by 2
+	R6 = A0;		//Stash the detail coeff in R6.H
+	R6 <<= 16;// PACK(R6.L, R6.L); //to get low word into high word
+
+	CC = BITTST(R4, DONE_LP);
+	IF CC JUMP DONE_BOTH; //If not done HP go do it
+	BITSET(R4, DONE_LP); 		//else set flag to show we did the LP
+	CLI R5; //Never set flags without disabling interrupts
+	W [P0] = R4.L; //Write back bit flags
+	STI R5;
+//Switch to the LP filter
+	P1.L = hl;
+	P1.H = hl;
+	I2 = P1;			// Initialize I2 to the start of the filter coeff. array h[]
+	B2 = P1;			// Set base address of HP FIR coeffs
+	R2 = [I2++] ||		//Get hl[0] and hl[1] into R2
+	R0 = [I1++];		// Get x[n], x[n+1] back into R0
+	JUMP OUTLOOP;
+
+DONE_BOTH:						
 	CLI R5;
 	R4.L= W[P0]; 
 	CC = BITTST(R4, BYE); 
