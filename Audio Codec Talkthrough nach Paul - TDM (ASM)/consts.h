@@ -1,6 +1,8 @@
-#define TAPLENGTH 4
-
-#define DELAY_SIZE  (TAPLENGTH+2) //#def BASE_TAPLENGTH in fir_coeff.h, =8, Now making d[] two samples bigger. To get I1 back behind the newy inserted 2 samples kick it back two 
+//#define TAPLENGTH 8
+#define MAXFILTERLENGTH 64  //Assume no filter will be longer than this. CAVEAT!
+#define TAPLENGTH (MAXFILTERLENGTH + 2) //Even if filter has max length, there is room for 2 new samples to be written without disturbing ongoing convolution
+#define DELAY_SIZE  TAPLENGTH //#def BASE_TAPLENGTH in fir_coeff.h, =8, Now making d[] always big enough (pseudo-)I1 gets repositioned to three samples behind I0 before each
+		//convolution
 //extra samples after each M-sample loop 
 #define INBUF_SIZE 8 //buffer incoming samples in a circular buffer of this size, don't need much, if not keeping up we're screwed anyway
 #define OUTBUF_SIZE 16

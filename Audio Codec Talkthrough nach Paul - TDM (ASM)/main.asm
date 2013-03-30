@@ -76,75 +76,8 @@ new samples (presently 2 at a time).
 					DAC_VOLUME_4	| 0x3ff,
 					DAC_VOLUME_5	| 0x3ff,
 					ADC_CONTROL_1	| 0x000,
-					ADC_CONTROL_2	| 0x180,
-					ADC_CONTROL_3	| 0x000
-					
-};
-// SPORT0 DMA transmit buffer
-.align 4;
-.byte4	tx_buf[8];
-// SPORT0 DMA receive buffer
-.align 4;
-.byte4	rx_buf[8];
-
-/************
-
-H0 a, b, c, d		F0 d, c, b, a 
-H1 d, -c, b, -a     F1 -a, b, -c, d
-
-Generally, to get IDWT filters from DWT
-
-H0 a, b, c
-H1 p, q, r, s, t 
-F0 p, -q, r, -s
-p, -q, r, -s, t F0
-
-***********/
-
-//The high-pass filter. Following Bömer's notation for consistency, regardless of logicality, h/H stands for forward transform, f/F for inverse (reconstruction) transform filters
-
-.VAR hh[TAPLENGTH] = { 0.4r, 0.4r, 0.4r, 0.4r}; //{0.70710678118655r, 0.70710678118655r, 0.70710678118655r, 0.70710678118655r}; 
-/*
-
-{	0.070710678118655r, 0.070710678118655r, 0.070710678118655r,0.070710678118655r, 0.070710678118655r, 0.070710678118655r, 0.070710678118655r, 0.070710678118655r,
-	0.070710678118655r, 0.070710678118655r, 0.070710678118655r, 0.070710678118655r,0.070710678118655r, 0.070710678118655r, 0.070710678118655r, 0.070710678118655r,
-	0.070710678118655r, 0.070710678118655r, 0.070710678118655r, 0.070710678118655r,0.070710678118655r, 0.070710678118655r, 0.070710678118655r, 0.070710678118655r,
-	0.070710678118655r, 0.070710678118655r, 0.070710678118655r, 0.070710678118655r,0.070710678118655r, 0.070710678118655r, 0.070710678118655r, 0.070710678118655r,
-	0.070710678118655r, 0.070710678118655r, 0.070710678118655r, 0.070710678118655r,0.070710678118655r, 0.070710678118655r, 0.070710678118655r, 0.070710678118655r,
-	0.070710678118655r, 0.070710678118655r, 0.070710678118655r, 0.070710678118655r,0.070710678118655r, 0.070710678118655r, 0.070710678118655r, 0.070710678118655r,
-	0.070710678118655r, 0.070710678118655r, 0.070710678118655r, 0.070710678118655r,0.070710678118655r, 0.070710678118655r, 0.070710678118655r, 0.070710678118655r,
-	0.070710678118655r, 0.070710678118655r, 0.070710678118655r, 0.070710678118655r,0.070710678118655r, 0.070710678118655r, 0.070710678118655r, 0.070710678118655r};*/ // "filt_coeff.dat"; //file of the form 
-											/*	0xff14,
-												000000,
-												0x114a,
-												0x2fa2,
-												0x2fa2,
-												0x114a,
-												000000,
-												0xff14 */
-												
-.VAR hl[TAPLENGTH]; //
-
-.align 2												
-.BYTE2 d[DELAY_SIZE];
-//.BYTE2 in[INBUF_SIZE]; No use for inbuff, each sample pair
-.BYTE2 out[16];
-//.BYTE2 MM = DELAY_SIZE; //Cannot use M, apparently reserved
-.BYTE4 flags = 0; //
-
-.GLOBAL flags, d, out;
-/*****************************************************************************
- Function:	_main	
- 
- May change this so it's a function called from a C shell (hehe). The function call will be something like
- _wisewave(unsigned int flags, int filtlen, int n_levels)
- How to initialize different hh, hl, or even change on the fly? One option, the C shell writes 										
- 
- Description: After initialization as per the Talkthrough example, my code disables interrupts, initializes the FIR
- 	setup, reenables interrupts, and spins until there's something to filter					
-******************************************************************************/
-.global _main;
-
+			ty
+kju
 .align 8
 .section L1_code;
 _main:
@@ -172,8 +105,9 @@ _main:
 	B2=P1;				// Filter coeff. array initialized as a circular buffer 
 	I0=P2;     			// start of the delay line write pointer
 	B0=P2;				// Delay line buffer is initialized as a circular buffer. See later where L2 is set to the length of this buffer
-	B1=P2;				// Delay line buffer is initialized as a circular buffer for the second time
-	I1=P2;     			// I1 also at delay line origin, need it one sample behing I0
+//	B1=P2;				// Delay line buffer is initialized as a circular buffer for the second time. Nope, new strategy, I0 is used both for
+//adding new samples and as the sliding pointer for convolution; after inserting new sample pair cache it and set it 3 samples behind
+//	I1=P2;     			// I1 also at delay line origin, need it one sample behing I0
 					
 	P3.L = out;
 	P3.H = out;
@@ -202,7 +136,9 @@ _main:
 									
 
 	R2 = [I2++];		//get h[0] into R2.L, h[1] into R2.H for the first time
-	NOP ;           // Align the instruction, do not yet understand how one would know when this is needed  
+	M0 = -6;			//Need this for repositioning I0 to be sliding pointer during convolution loop
+	
+//	NOP ;           // Align the instruction, do not yet understand how one would know when this is needed  
 //All new from here on in
 
 //in streaming version spin here till data ready flag set, the OULTLOOP is infinite, so would just JUMP back to OUTLOOP
@@ -234,8 +170,10 @@ OUTLOOP:
 //n = 0				
 	A0 = R2.L*R0.L, 	//h[0].x[n]
 	A1 = R2.L*R0.H ||	//h[0].x[n+1]
-	[I0++] = R0 ||		//write the two new samples into d[], at the address indexed by I0, advance I0	
-	R0.H = W[I1--];		//R0.H = x[n-1], R0.L = x[n], decrement I1 by one 2-byte step
+	[I0++] = R0;		//write the two new samples into d[], at the address indexed by I0, advance I0
+	R4 = I0;			// cache I0
+	I0 = P2;			//Restore cached pseudo-I1, pointing at x[n-1]
+	R0.H = W[I0--];		//R0.H = x[n-1], R0.L = x[n], decrement I1 by one 2-byte step
 	
 	LSETUP(INLOOP,END_INLOOP) LC1=P2>>1; //deal with 2 samples in every loop, 1 cycle per sample, as in the original fir example	
 
@@ -243,54 +181,43 @@ INLOOP:
 	A0 += R2.H*R0.H,	//add h[1].x[n-1] to A0	N.B. {Two MAC ops in one instruction must both use the same two registers, }
 	A1 += R2.H*R0.L ||	//add h[1].x[n] to A1. 		 { e.g if R0 was R1 in the second instruction it would be illegal}
 	R2 = [I2++] ||		//get h[2], h[3] into R2, so R2.L = h[2], R2.H = h[3]
-	R0.L = W[I1--];		//R0.L = x[n-2], R0.H = x[n-1];								
+	R0.L = W[I0--];//I1--];		//R0.L = x[n-2], R0.H = x[n-1];								
 	
 END_INLOOP:
 	A0 += R2.L*R0.L,	//add h[2].x[n-2] to A0
 	A1 += R2.L*R0.H ||	//add h[2].x[n-1] to A1
-	R0.H = W[I1--];		//R0.L= x[n-2], R0.H=x[n-3]
+	R0.H = W[I0--]; //I1--];		//R0.L= x[n-2], R0.H=x[n-3]
 
 //END_OUTLOOP:	
 	R6.L = (A0 += R2.H*R0.H),	//add h[7].x[n-7] to A0, assuming all done copy low word to R6.L 
 	R6.H = (A1 += R2.H*R0.L) ||	//add h[7].x[n-6] to A1,      "     "   "  copy low word to R6.H
-	R2 = [I2++] ||				//R2.L = h[0], R2.H = h[1], for next outer loop
+	R2 = [I2++]; // ||	Different now FIX ME!			//R2.L = h[0], R2.H = h[1], for next outer loop
 //	I1+=2; 				//In one outer loop I1 steps backwards by M-1 samples, ending up one sample further forward in the M-sample 
 						// circular buffer d[], whilst I0 advances two samples in each outer loop.Hence need to bump up I1 by one more sample
+	
 /************
-Now using delay line of M+2 samples, so I1 ends up where I0 is, before next 2 samples are written to [I0++]. Need to back I1 by 1 sample.
-Here's and illustration for the case of M=4, at the transition between getting out samples y[4], y[5] and initiating convolutions to get y[6], y[7]
+Now using delay line of Mmax + 2 samples, so I1 ends up where I0 is, before next 2 samples are written to [I0++]. Need to back I1 by 1 sample.
+Here's and illustration for the case of Mmax = 8 (in practice much larger), showing the transition between getting out samples y[8], y[9] and initiating
+convolutions to get y[6], y[7]
 
-Before convoluting to get y[4], y[5]
+Before convoluting to get y[8], y[9]
+                                                                                ----------- used to get y[9] ---------------
+                                                        			----------- used to get y[8] -----------------
+                                                          
+ |    x[0]     |    x[1]     |    x[2]     |    x[3]     |  x[4]   |    x[5]    |    x[6]   |   x[7]   |   x[8]   |   x[9]   | 
+ ^                                                                                           ^
+ I0                                                                                        "I1"
+                                
+"I1" is a pseudonym for a cached value of I0 now used as the moving pointer in the convolution where I previously used I1, making another I pointer
+available elsewhere.
 
-                                                           ---- put in from R0 ----- 
- |    x[0]     |     x[1]     |     x[2]     |     x[3]     | x[4]     |     x[5]     |
-    
-  ^                                                          ^
-  I0                                                         I1
-  
-  After (the last operation using I1 was R0.H = W[I1--], getting x[1] (i.e. x[n-M+1], n=4, M=4) into R0.H 
-  
-                                ------------------used to get y[5] --------------------
-                 ---------------------- used to get y[4] ---------------     
-  |    x[0]     |     x[1]     |     x[2]     |     x[3]     | x[4]     |     x[5]     |
-   ^
-   I1
-   I0
-   
-  On loading x[6], x[7] instead of the two oldest samples,  using I0++:
-  
-   ----- put in from R0 -------
-  |    x[6]     |     x[7]     |     x[2]     |     x[3]     | x[4]     |     x[5]     |
-  ^                             ^
-  I1                            I0
-  
-  We need I1 to be pointing at x[5] (x[n-1] now n = 6), so it needs to be move back by one sample before initializing the loop again. 
-  Then we'll have
-   
-      ----- put in from R0 -------
-  |    x[6]     |     x[7]     |     x[2]     |     x[3]     | x[4]     |     x[5]     |
-                                ^                                        ^
-                               I0                                        I1
+After calculating y[8], y[9], and at some point during this time loading x[10], x[11] at [I0++]:
+
+ |    x[10]     |    x[11]     |    x[2]     |    x[3]     |  x[4]   |    x[5]    |    x[6]   |   x[7]   |   x[8]   |   x[9]   | 
+                                ^                                     ^
+                                I0                                   "I1"
+                                
+  The last operation using I1 was R0.H = W[I1--], getting x[4
 
 *****************/
 	

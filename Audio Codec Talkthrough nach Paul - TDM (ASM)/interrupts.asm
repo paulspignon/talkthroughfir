@@ -30,6 +30,9 @@ Secondly, incoming samples are copied to R7, to feed the processing loop in main
 Have a counter which shows how many samples in R7, when 2 then set IN_READY flag bit 
 ***/
 
+//ISR maintains its own I0 pointer for writing new samples to d[], pop it off the stack
+here
+
 //Push registers on stack
 	[--SP] = P0;
 	[--SP] = P1;
